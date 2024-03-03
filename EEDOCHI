@@ -1,0 +1,189 @@
+       PROCESS DYNAM
+       ID               DIVISION.
+       PROGRAM-ID.      EEDOCHI.
+
+      *    -----------------------------------------------------------
+      *    EEDOCHI - Ausgabe Kundenhistorie als CSV-Datei
+      *    Ausgabe der Historiendaten im USS (HFS) 
+      *    -----------------------------------------------------------
+      *    Datum       Name      Beschreibung
+      *    17.02.2024  Graf      Erstversion
+      *    -----------------------------------------------------------
+
+       ENVIRONMENT      DIVISION.
+       CONFIGURATION    SECTION.
+       SPECIAL-NAMES.
+           DECIMAL-POINT
+                        IS COMMA.
+       INPUT-OUTPUT     SECTION.
+       FILE-CONTROL.
+
+           SELECT       CHICSV         ASSIGN TO    CHICSV
+                                       ORGANIZATION IS LINE SEQUENTIAL.
+
+           SELECT       CHIS           ASSIGN TO    CHIS
+                                       ORGANIZATION IS SEQUENTIAL
+                                       FILE STATUS  IS STA-CHIS.        
+
+       DATA             DIVISION.
+       FILE             SECTION.
+
+       FD  CHICSV.
+       01  CHICSV-BUF                  PIC X(128).
+
+
+       FD  CHIS.
+       01  CHIS-BUF                    PIC X(125).
+
+       WORKING-STORAGE  SECTION.
+
+           COPY    CBCHI.
+
+       01. *>  Variable(n) Dateihandling
+           05  EOF-CHIS                PIC 9(1)     VALUE ZERO.
+               88  IS-EOF-CHIS                      VALUE 1.
+               88  IS-NOT-EOF-CHIS                  VALUE 0.
+           05  CNT-CHIS                PIC 9(6)     VALUE ZERO.
+           05  CNT-CHICSV              PIC 9(6)     VALUE ZERO.
+           05  STA-CHIS                PIC 9(2). 
+
+       01. *>  Sonstige/Hilfs-Variable(n) fuer CSV          
+           05  H-KDNR                  PIC 9(5).    *> Kd.Nr.
+           05  H-BELDAT.                            *> Belegdatum
+               10  H-BELDAT-TT         PIC 9(2).
+               10  FILLER              PIC X        VALUE '.'.
+               10  H-BELDAT-MM         PIC 9(2).
+               10  FILLER              PIC X        VALUE '.'.
+               10  H-BELDAT-JJJJ       PIC 9(4).
+           05  H-UMS                   PIC 9(6),9(2).
+           05  H-INFO-TEXT             PIC X(40).
+
+       01. *>  Konstanten für CSV Header
+           05  HDR-KDNR                PIC X(5)     VALUE 'Kd.Nr'.
+           05  HDR-BELDAT              PIC X(10)    VALUE 'Datum'.
+           05  HDR-UMS                 PIC X(9)     VALUE 'Umsatz'.
+           05  HDR-INFO-TEXT           PIC X(40)    VALUE 'Bel.Text'.   
+                                                        
+       PROCEDURE        DIVISION.         
+
+      *    -----------------------------------------------------------
+      *    MAIN
+      *    -----------------------------------------------------------
+       MAIN SECTION.
+           PERFORM PROCESS-CHIS
+           PERFORM HANDLE-EXIT
+           GOBACK
+           .
+
+      *    -----------------------------------------------------------
+      *    PROCESS-CHIS
+      *    Einlesen der Kundenhistorie
+      *    -----------------------------------------------------------
+       PROCESS-CHIS SECTION.
+           OPEN    INPUT               CHIS
+           IF      STA-CHIS NOT = '00'
+                   DISPLAY  'Fehler bei OPEN - CHIS'
+                   PERFORM  HANDLE-ERROR
+           END-IF 
+
+           OPEN    OUTPUT              CHICSV
+
+           PERFORM PROCESS-CHICSV-HEADER        
+
+           PERFORM UNTIL IS-EOF-CHIS
+                   READ  CHIS
+                         AT END
+                            SET        IS-EOF-CHIS TO TRUE
+                         NOT AT END
+                            COMPUTE    CNT-CHIS = CNT-CHIS + 1
+                            PERFORM    PROCESS-CHICSV 
+                   END-READ
+           END-PERFORM
+
+           CLOSE   CHICSV
+                   CHIS
+           .
+
+      *    -----------------------------------------------------------
+      *    PROCESS-CHICSV-HEADER
+      *    Ausgabe der Headerinformation CSV
+      *    -----------------------------------------------------------
+       PROCESS-CHICSV-HEADER SECTION.
+           INITIALIZE
+                   CHICSV-BUF 
+                   
+           STRING
+                   HDR-KDNR            DELIMITED BY SIZE
+                   ';'
+                   HDR-BELDAT          DELIMITED BY SIZE
+                   ';'
+                   HDR-UMS             DELIMITED BY SIZE
+                   ';'
+                   HDR-INFO-TEXT       DELIMITED BY SIZE       
+                   INTO 
+                                       CHICSV-BUF                       
+           END-STRING
+
+           WRITE   CHICSV-BUF
+
+           COMPUTE CNT-CHICSV          =  CNT-CHICSV + 1
+           .
+
+      *    -----------------------------------------------------------
+      *    PROCESS-CHICSV
+      *    Ausgabe des Kundendatensatzes CSV
+      *    -----------------------------------------------------------
+       PROCESS-CHICSV SECTION.
+      *    Aufbereitung Datensatz Kundenhistorie  
+           MOVE    CHIS-BUF            TO CHI-REC
+
+           MOVE    CHI-KDNR            TO H-KDNR
+           MOVE    CHI-DAT-TT          TO H-BELDAT-TT
+           MOVE    CHI-DAT-MM          TO H-BELDAT-MM
+           MOVE    CHI-DAT-JJJJ        TO H-BELDAT-JJJJ
+           MOVE    CHI-UMS             TO H-UMS
+           MOVE    CHI-INFO-TEXT       TO H-INFO-TEXT
+
+           INITIALIZE
+                   CHICSV-BUF          
+
+           STRING
+                   H-KDNR              DELIMITED BY SIZE
+                   ';'
+                   H-BELDAT            DELIMITED BY SIZE
+                   ';'
+                   H-UMS               DELIMITED BY SIZE
+                   ';'
+                   H-INFO-TEXT         DELIMITED BY SIZE       
+                   INTO 
+                                       CHICSV-BUF               
+           END-STRING
+
+           WRITE   CHICSV-BUF
+
+           COMPUTE CNT-CHICSV          = CNT-CHICSV + 1
+           .     
+
+      *    -----------------------------------------------------------
+      *    HANDLE-ERROR
+      *    Fehlerbehandlung
+      *    -----------------------------------------------------------
+       HANDLE-ERROR SECTION.
+           DISPLAY 'Programmabbruch'
+           MOVE    12                  TO RETURN-CODE
+           STOP    RUN
+           .     
+
+      *    -----------------------------------------------------------
+      *    HANDLE-Exit
+      *    Normales Programmende, Ausgabe Zusammenfassung
+      *    -----------------------------------------------------------
+       HANDLE-EXIT SECTION.
+           DISPLAY 'Programmstart' 
+           DISPLAY 'Eingabe CHIS   : ' CNT-CHIS
+           DISPLAY 'Ausgabe CHICSV : ' CNT-CHICSV   
+           DISPLAY 'Programmende'             
+           MOVE    0                   TO RETURN-CODE
+           .                           
+
+       END PROGRAM      EEDOCHI.
